@@ -1,0 +1,35 @@
+{
+    "compilerOptions": {
+        "allowJs": true,
+        "baseUrl": ".",
+        "module": "ESNext",
+        "target": "ESNext",
+        "lib": [
+            "DOM",
+            "ESNext"
+        ],
+        "strict": true,
+        "esModuleInterop": true,
+        "incremental": false,
+        "importHelpers": true,
+        "moduleResolution": "bundler",
+        "resolveJsonModule": true,
+        "noUnusedLocals": true,
+        "forceConsistentCasingInFileNames": true,
+        "types": [
+            "vite/client"
+        ],
+        "paths": {
+            "~/*": [
+                "resources/js/*"
+            ],
+            "ziggy": [
+                "resources/js/shims/ziggy"
+            ]
+        }
+    },
+    "exclude": [
+        "dist",
+        "node_modules"
+    ]
+}

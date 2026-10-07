@@ -1,0 +1,2 @@
+# Laravel's scheduler: checks every minute; tasks:generate runs at 00:00 UK time (the app's timezone).
+* * * * * cd /app && php83 artisan schedule:run > /dev/null 2>&1
