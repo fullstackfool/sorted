@@ -1,0 +1,87 @@
+# Builds the Home Assistant app's image and pushes it to GitHub's container
+# registry whenever `version` in ha-app/package/config.yaml changes on main.
+# Home Assistant then offers that version as an update.
+name: Home Assistant app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ha-app/package/config.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    # The Pi is 64-bit ARM, so build on an ARM runner rather than emulating.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version and image name
+        id: app
+        run: |
+          config=ha-app/package/config.yaml
+          version="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$config")"
+          image="$(sed -n 's/^image: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$config")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ref=${image/\{arch\}/aarch64}:$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Each version is built once; raise `version` to release a change.
+      - name: Check whether this version is already published
+        id: existing
+        env:
+          REF: ${{ steps.app.outputs.ref }}
+        run: |
+          if docker manifest inspect "$REF" > /dev/null 2>&1; then
+            echo "::notice::$REF is already published, nothing to do."
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: shivammathur/setup-php@v2
+        if: steps.existing.outputs.found == 'false'
+        with:
+          php-version: '8.3'
+          tools: composer
+
+      - uses: actions/setup-node@v4
+        if: steps.existing.outputs.found == 'false'
+        with:
+          node-version: 22
+
+      - name: Build the app
+        if: steps.existing.outputs.found == 'false'
+        env:
+          # Set a repository variable APP_URL if the Pi's address changes.
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          command -v rsync > /dev/null || sudo apt-get install -y rsync
+          ha-app/build.sh
+
+      - name: Build and push the image
+        if: steps.existing.outputs.found == 'false'
+        env:
+          REF: ${{ steps.app.outputs.ref }}
+          VERSION: ${{ steps.app.outputs.version }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          docker build \
+            --label io.hass.name=Sorted \
+            --label io.hass.type=addon \
+            --label io.hass.arch=aarch64 \
+            --label "io.hass.version=$VERSION" \
+            --label "org.opencontainers.image.source=$SOURCE" \
+            --tag "$REF" \
+            ha-app/dist/sorted
+          docker push "$REF"

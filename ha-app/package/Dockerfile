@@ -1,6 +1,6 @@
 # Sorted: Laravel + PHP 8.3 (FPM) + nginx on Alpine.
-# The app arrives ready-built (vendor/ and public/build/ made on the Mac by
-# build.sh), so this image only installs PHP and nginx and copies files in.
+# The app arrives ready-built (vendor/ and public/build/ made by build.sh in
+# GitHub Actions), so this image only installs PHP and nginx and copies files in.
 #
 # The base image is fixed on purpose (no ARG BUILD_FROM): Home Assistant's
 # own base images use s6 as their entrypoint, which this app doesn't need.
@@ -32,8 +32,6 @@ RUN apk add --no-cache \
 
 # nginx, PHP-FPM, PHP settings, the scheduler's crontab and the start script.
 COPY rootfs/ /
-# First-run database (only used when /data has no database yet).
-COPY seed/database.sqlite /opt/sorted/seed.sqlite
 # The built Laravel app.
 COPY app/ /app/
 

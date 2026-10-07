@@ -1,7 +1,8 @@
 #!/bin/sh
 # Sorted start-up. Runs every time the app starts.
 #   1. Make sure the database and app key exist in /data (kept across
-#      restarts, updates and rebuilds, and included in HA backups).
+#      restarts and updates, and included in HA backups), loading an
+#      imported database first if one has been dropped in.
 #   2. Write .env, run migrations, warm Laravel's caches.
 #   3. Start the scheduler (cron), PHP-FPM, then nginx in the foreground.
 #
@@ -11,7 +12,8 @@ set -e
 
 APP_DIR="${APP_DIR:-/app}"
 DATA_DIR="${DATA_DIR:-/data}"
-SEED_DB="${SEED_DB:-/opt/sorted/seed.sqlite}"
+# The app's config folder (the "app_configs" Samba share in Home Assistant).
+CONFIG_DIR="${CONFIG_DIR:-/config}"
 WEB_USER="${WEB_USER:-nginx}"
 PHP_BIN="${PHP_BIN:-php83}"
 PHP_FPM_BIN="${PHP_FPM_BIN:-php-fpm83}"
@@ -22,18 +24,28 @@ log() { echo "[sorted] $*"; }
 
 cd "$APP_DIR"
 mkdir -p "$DATA_DIR"
-FIRST_START=no
+IMPORTED=no
 
 # --- 1. Database and key -----------------------------------------------------
+# A database dropped into the config folder as import.sqlite replaces the
+# current one. The current one moves to the config folder as
+# before-import.sqlite, and the import is renamed imported.sqlite so it only
+# loads once. The image is public, so this is how real data gets in.
+if [ -f "$CONFIG_DIR/import.sqlite" ]; then
+    log "Importing import.sqlite from the config folder"
+    for ext in "" -journal -wal -shm; do
+        if [ -f "$DATA_DIR/database.sqlite$ext" ]; then
+            mv "$DATA_DIR/database.sqlite$ext" "$CONFIG_DIR/before-import.sqlite$ext"
+        fi
+    done
+    cp "$CONFIG_DIR/import.sqlite" "$DATA_DIR/database.sqlite"
+    mv "$CONFIG_DIR/import.sqlite" "$CONFIG_DIR/imported.sqlite"
+    IMPORTED=yes
+fi
+
 if [ ! -f "$DATA_DIR/database.sqlite" ]; then
-    FIRST_START=yes
-    if [ -f "$SEED_DB" ]; then
-        log "First start: copying in the starter database"
-        cp "$SEED_DB" "$DATA_DIR/database.sqlite"
-    else
-        log "First start: creating an empty database"
-        : > "$DATA_DIR/database.sqlite"
-    fi
+    log "First start: creating an empty database"
+    : > "$DATA_DIR/database.sqlite"
 fi
 
 if [ ! -s "$DATA_DIR/app_key" ]; then
@@ -82,18 +94,18 @@ run_artisan() {
 log "Running database migrations"
 run_artisan migrate --force --no-interaction
 
-# The starter database's open chores can be months old. Sorted dates each
+# An imported database's open chores can be months old. Sorted dates each
 # chore's next occurrence from the previous one's date, so old chores would
-# come back one day at a time. On first start only, move them to today.
-if [ "$FIRST_START" = "yes" ]; then
+# come back one day at a time. On import only, move them to today.
+if [ "$IMPORTED" = "yes" ]; then
     $PHP_BIN -r "
         \$db = new PDO('sqlite:' . \$argv[1]);
         try {
             \$n = \$db->exec(\"UPDATE tasks SET date = date('now') || ' 00:00:00'
                              WHERE status = 'todo' AND date IS NOT NULL AND date < date('now')\");
-            echo '[sorted] Moved ' . \$n . ' overdue open chores from the starter database to today' . PHP_EOL;
+            echo '[sorted] Moved ' . \$n . ' overdue open chores from the imported database to today' . PHP_EOL;
         } catch (Throwable \$e) {
-            echo '[sorted] Could not re-date starter chores: ' . \$e->getMessage() . PHP_EOL;
+            echo '[sorted] Could not re-date imported chores: ' . \$e->getMessage() . PHP_EOL;
         }
     " "$DATA_DIR/database.sqlite"
 fi

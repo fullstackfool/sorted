@@ -1,0 +1,5 @@
+# Lets Home Assistant use this repository as an app store source.
+# The app itself is in ha-app/package/.
+name: Sorted
+url: https://github.com/fullstackfool/sorted
+maintainer: Karl Davies

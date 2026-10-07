@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Build the Sorted Home Assistant app into ha-app/dist/sorted.
-#
-# Run it on the Mac from anywhere:   ~/sorted/ha-app/build.sh
+# Build the Sorted Home Assistant app into ha-app/dist/sorted, the folder the
+# Docker image is built from. GitHub Actions runs this for every release
+# (.github/workflows/ha-app.yml); run it locally to check a build:
+#   ha-app/build.sh
 # Needs: php (8.2+), composer, npm, rsync. Your project files aren't changed:
-# everything happens in a copy under ha-app/.build/.
+# everything happens in a copy under ha-app/.build/. Your local database is
+# never included: the image is public, so data is imported on the Pi instead.
 #
 # The front end has the app's address baked in (Ziggy), so build for the
 # address the tablet will use. Default is the Pi; override with:
-#   APP_URL=http://192.168.0.80:8080 ~/sorted/ha-app/build.sh
+#   APP_URL=http://192.168.0.80:8080 ha-app/build.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -73,13 +75,8 @@ rm -f .env
 
 echo "==> Assembling $DIST"
 rm -rf "$DIST"
-mkdir -p "$DIST/seed"
+mkdir -p "$DIST"
 cp -R "$HERE/package/." "$DIST/"
-if [ -f "$PROJECT/database/database.sqlite" ]; then
-    cp "$PROJECT/database/database.sqlite" "$DIST/seed/database.sqlite"
-else
-    : > "$DIST/seed/database.sqlite"
-fi
 rsync -a --exclude '/node_modules' "$WORK/" "$DIST/app/"
 chmod -R u+rwX,go+rX "$DIST"
 chmod 755 "$DIST/rootfs/run.sh"
@@ -88,4 +85,3 @@ VERSION="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\} *$/\1/p' "$DIST/config
 SIZE="$(du -sh "$DIST" | cut -f1)"
 echo ""
 echo "Done: Sorted $VERSION, $SIZE, in $DIST"
-echo "Copy that 'sorted' folder into the 'local_apps' share on Home Assistant (Samba share app)."

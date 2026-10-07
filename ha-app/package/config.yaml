@@ -1,11 +1,15 @@
-# Sorted as a Home Assistant app (add-on).
-# Bump `version` whenever you copy a new build over, then press Rebuild.
+# Sorted as a Home Assistant app (add-on), installed from this GitHub repository.
+# Raise `version` and push to main to release: GitHub Actions builds the image
+# for that version and Home Assistant offers it as an update.
 name: Sorted
 version: "1.0.0"
 slug: sorted
 description: Family chores, points and streaks. Served on port 8080.
+url: https://github.com/fullstackfool/sorted
 arch:
   - aarch64
+# Built by .github/workflows/ha-app.yml. HA downloads <image>:<version>.
+image: "ghcr.io/fullstackfool/sorted-{arch}"
 startup: application
 boot: auto
 # Docker's own init (tini) runs run.sh; the image doesn't use s6.
@@ -21,3 +25,8 @@ watchdog: "http://[HOST]:[PORT:8080]/up"
 # The SQLite database is a single file in /data. A cold backup stops the app
 # for a few seconds so the file is never copied half-written.
 backup: cold
+# The app's config folder, at /config inside the app and in the Samba share
+# app's "app_configs" share. Drop a database in as import.sqlite to load it.
+map:
+  - type: addon_config
+    read_only: false
