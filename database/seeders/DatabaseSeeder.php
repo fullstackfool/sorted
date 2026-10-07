@@ -2,10 +2,12 @@
 
 namespace Database\Seeders;
 
+use App\Models\Chore;
+use App\Models\Completion;
 use App\Models\Label;
-use App\Models\Template;
-use App\Models\Task;
 use App\Models\User;
+use App\Support\Schedule;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -15,66 +17,50 @@ class DatabaseSeeder extends Seeder
     use WithoutModelEvents;
 
     /**
-     * Create initial task instance for a template (and its subtemplates)
+     * Create a chore with its people and labels, due when its schedule first falls unless a due date is given.
+     *
+     * @param array<string, mixed> $attributes
+     * @param array<User>          $people
+     * @param array<Label>         $labels
      */
-    private function createInitialInstance(Template $template): void
+    private function chore(array $attributes, array $people, array $labels): Chore
     {
-        // Skip subtemplates - they're handled by their parent
-        if ($template->parent_id !== null) {
-            return;
-        }
+        $chore              = new Chore($attributes);
+        $chore->next_due_on = $attributes['next_due_on'] ?? Schedule::of($chore)->firstDueOn(CarbonImmutable::today());
+        $chore->save();
 
-        // Skip if template is flexible (no due date)
-        $pattern = $template->recurrence_pattern ?? [];
-        $isFlexible = $pattern['flexible'] ?? false;
+        $chore->users()->attach(array_map(fn (User $user) => $user->id, $people));
+        $chore->labels()->attach(array_map(fn (Label $label) => $label->id, $labels));
 
-        if ($isFlexible) {
-            return;
-        }
-
-        $taskDate = null;
-
-        // For one-time templates with deadline, use the deadline
-        if ($template->recurrence_type === 'none' && $template->deadline) {
-            $taskDate = $template->deadline;
-        }
-        // For one-time templates without deadline, skip (they're not scheduled)
-        elseif ($template->recurrence_type === 'none') {
-            return;
-        }
-        // For recurring templates, calculate first instance date
-        else {
-            $taskDate = $template->calculateNextOccurrence(now()->subDay());
-        }
-
-        if (!$taskDate) {
-            return;
-        }
-
-        // Create the parent task
-        $task = Task::create([
-            'template_id' => $template->id,
-            'date'        => $taskDate,
-            'status'      => 'todo',
-        ]);
-
-        // Create subtasks for any subtemplates
-        foreach ($template->subtemplates as $subtemplate) {
-            Task::create([
-                'template_id' => $subtemplate->id,
-                'parent_id'   => $task->id,
-                'date'        => $taskDate,
-                'status'      => 'todo',
-            ]);
-        }
+        return $chore;
     }
 
     /**
-     * Seed the application's database.
+     * Record the chore as done or skipped at $hour on the day it was due, and move it on to its next due date.
+     */
+    private function complete(Chore $chore, User $user, string $status, CarbonImmutable $dueOn, int $hour): void
+    {
+        $completedAt = $dueOn->setTime($hour, 0);
+
+        $chore->completions()->create([
+            'user_id'      => $user->id,
+            'status'       => $status,
+            'due_on'       => $dueOn,
+            'points'       => $status === Completion::DONE ? $chore->points : 0,
+            'completed_at' => $completedAt,
+        ]);
+
+        $chore->update(['next_due_on' => Schedule::of($chore)->nextDueOn($dueOn, $completedAt->startOfDay())]);
+    }
+
+    /**
+     * Seed a fictional sample family with their chores, labels and a few past completions.
      */
     public function run(): void
     {
-        // Create family members
+        $today = CarbonImmutable::today();
+
+        // Add a fictional family so we can assign chores to them.
         $karl = User::create([
             'name'     => 'Karl',
             'email'    => 'karl@example.com',
@@ -107,260 +93,185 @@ class DatabaseSeeder extends Seeder
         $pets     = Label::create(['name' => 'Pets', 'color' => '#8B5CF6']);
         $bathroom = Label::create(['name' => 'Bathroom', 'color' => '#06B6D4']);
 
-        // DAILY TASKS
+        // DAILY CHORES
 
-        // Dishes
-        $dishes                = Template::create([
-            'title'           => 'Do the dishes',
-            'description'     => 'Wash, dry and put away all dishes',
-            'points'          => 10,
-            'recurrence_type' => 'daily',
-        ]);
-        $dishes->next_due_date = $dishes->calculateNextDueDate();
-        $dishes->save();
-        $dishes->labels()->attach([$kitchen->id]);
-        $dishes->users()->attach([$leo->id, $kai->id]);
-        $this->createInitialInstance($dishes);
+        // Dishes (skipped three days ago, so overdue since the day after)
+        $dishes = $this->chore([
+            'title'       => 'Do the dishes',
+            'description' => 'Wash, dry and put away all dishes',
+            'points'      => 10,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::dailyRule(),
+            'starts_on'   => $today->subDays(3),
+        ], [$leo, $kai], [$kitchen]);
+        $this->complete($dishes, $kai, Completion::SKIPPED, $today->subDays(3), 18);
 
-        // Tidy living room
-        $tidy                = Template::create([
-            'title'           => 'Tidy living room',
-            'description'     => 'Pick up toys, straighten cushions, put things away',
-            'points'          => 5,
-            'recurrence_type' => 'daily',
-        ]);
-        $tidy->next_due_date = $tidy->calculateNextDueDate();
-        $tidy->save();
-        $tidy->labels()->attach([$cleaning->id]);
-        $tidy->users()->attach([$leo->id, $kai->id]);
-        $this->createInitialInstance($tidy);
+        // Tidy living room (not done yesterday, so overdue)
+        $this->chore([
+            'title'       => 'Tidy living room',
+            'description' => 'Pick up toys, straighten cushions, put things away',
+            'points'      => 5,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::dailyRule(),
+            'starts_on'   => $today->subDay(),
+            'next_due_on' => $today->subDay(),
+        ], [$leo, $kai], [$cleaning]);
 
         // Feed pets
-        $feedPets                = Template::create([
-            'title'           => 'Feed the pets',
-            'description'     => 'Morning and evening meals',
-            'points'          => 5,
-            'recurrence_type' => 'daily',
-        ]);
-        $feedPets->next_due_date = $feedPets->calculateNextDueDate();
-        $feedPets->save();
-        $feedPets->labels()->attach([$pets->id]);
-        $feedPets->users()->attach([$leo->id, $kai->id]);
-        $this->createInitialInstance($feedPets);
+        $feedPets = $this->chore([
+            'title'       => 'Feed the pets',
+            'description' => 'Morning and evening meals',
+            'points'      => 5,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::dailyRule(),
+            'starts_on'   => $today->subDay(),
+        ], [$leo, $kai], [$pets]);
+        $this->complete($feedPets, $leo, Completion::DONE, $today->subDay(), 8);
 
         // Make beds
-        $beds                = Template::create([
-            'title'           => 'Make all beds',
-            'description'     => 'Make beds in all bedrooms',
-            'points'          => 5,
-            'recurrence_type' => 'daily',
-        ]);
-        $beds->next_due_date = $beds->calculateNextDueDate();
-        $beds->save();
-        $beds->labels()->attach([$cleaning->id]);
-        $beds->users()->attach([$leo->id, $kai->id]);
-        $this->createInitialInstance($beds);
+        $beds = $this->chore([
+            'title'       => 'Make all beds',
+            'description' => 'Make beds in all bedrooms',
+            'points'      => 5,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::dailyRule(),
+            'starts_on'   => $today->subDay(),
+        ], [$leo, $kai], [$cleaning]);
+        $this->complete($beds, $kai, Completion::DONE, $today->subDay(), 9);
 
-        // WEEKLY TASKS
+        // WEEKLY CHORES
 
-        // Laundry (flexible - any day)
-        $laundryTask                = Template::create([
-            'title'              => 'Do laundry',
-            'description'        => 'Wash, dry, fold and put away clothes',
-            'points'             => 15,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['flexible' => true],
-        ]);
-        $laundryTask->next_due_date = $laundryTask->calculateNextDueDate();
-        $laundryTask->save();
-        $laundryTask->labels()->attach([$laundry->id]);
-        $laundryTask->users()->attach([$karl->id, $lisa->id]);
+        // Laundry (a week after it's done)
+        $laundryChore = $this->chore([
+            'title'       => 'Do laundry',
+            'description' => 'Wash, dry, fold and put away clothes',
+            'points'      => 15,
+            'schedule'    => Chore::AFTER,
+            'every'       => 1,
+            'unit'        => 'week',
+        ], [$karl, $lisa], [$laundry]);
+        $this->complete($laundryChore, $lisa, Completion::DONE, $today->subDays(3), 17);
 
         // Vacuum (Saturdays)
-        $vacuum                = Template::create([
-            'title'              => 'Vacuum all floors',
-            'description'        => 'Vacuum all carpets and rugs throughout the house',
-            'points'             => 15,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['days_of_week' => [6]], // Saturday
-        ]);
-        $vacuum->next_due_date = $vacuum->calculateNextDueDate();
-        $vacuum->save();
-        $vacuum->labels()->attach([$cleaning->id]);
-        $vacuum->users()->attach([$leo->id, $kai->id]);
-        $this->createInitialInstance($vacuum);
+        $this->chore([
+            'title'       => 'Vacuum all floors',
+            'description' => 'Vacuum all carpets and rugs throughout the house',
+            'points'      => 15,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::weekdaysRule([6]),
+            'starts_on'   => $today,
+        ], [$leo, $kai], [$cleaning]);
 
         // Trash (Wednesdays)
-        $trash                = Template::create([
-            'title'              => 'Take out trash and recycling',
-            'description'        => 'Empty all bins and take to curb',
-            'points'             => 10,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['days_of_week' => [3]], // Wednesday
-        ]);
-        $trash->next_due_date = $trash->calculateNextDueDate();
-        $trash->save();
-        $trash->labels()->attach([$outdoor->id]);
-        $trash->users()->attach([$leo->id]);
-        $this->createInitialInstance($trash);
+        $this->chore([
+            'title'       => 'Take out trash and recycling',
+            'description' => 'Empty all bins and take to curb',
+            'points'      => 10,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::weekdaysRule([3]),
+            'starts_on'   => $today,
+        ], [$leo], [$outdoor]);
 
         // Mop floors (Fridays)
-        $mop                = Template::create([
-            'title'              => 'Mop kitchen and bathroom',
-            'description'        => 'Mop all hard floors',
-            'points'             => 15,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['days_of_week' => [5]], // Friday
-        ]);
-        $mop->next_due_date = $mop->calculateNextDueDate();
-        $mop->save();
-        $mop->labels()->attach([$cleaning->id, $kitchen->id, $bathroom->id]);
-        $mop->users()->attach([$kai->id]);
-        $this->createInitialInstance($mop);
+        $this->chore([
+            'title'       => 'Mop kitchen and bathroom',
+            'description' => 'Mop all hard floors',
+            'points'      => 15,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::weekdaysRule([5]),
+            'starts_on'   => $today,
+        ], [$kai], [$cleaning, $kitchen, $bathroom]);
 
         // Clean bathrooms (Sundays)
-        $bathroomClean                = Template::create([
-            'title'              => 'Clean bathrooms',
-            'description'        => 'Clean toilets, sinks, mirrors, and counters',
-            'points'             => 20,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['days_of_week' => [0]], // Sunday
-        ]);
-        $bathroomClean->next_due_date = $bathroomClean->calculateNextDueDate();
-        $bathroomClean->save();
-        $bathroomClean->labels()->attach([$bathroom->id, $cleaning->id]);
-        $bathroomClean->users()->attach([$karl->id, $lisa->id]);
-        $this->createInitialInstance($bathroomClean);
+        $this->chore([
+            'title'       => 'Clean bathrooms',
+            'description' => 'Clean toilets, sinks, mirrors, and counters',
+            'points'      => 20,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::weekdaysRule([0]),
+            'starts_on'   => $today,
+        ], [$karl, $lisa], [$bathroom, $cleaning]);
 
         // Grocery shopping (Saturdays)
-        $groceries                = Template::create([
-            'title'              => 'Grocery shopping',
-            'description'        => 'Weekly grocery shop',
-            'points'             => 10,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['days_of_week' => [6]], // Saturday
-        ]);
-        $groceries->next_due_date = $groceries->calculateNextDueDate();
-        $groceries->save();
-        $groceries->labels()->attach([$kitchen->id]);
-        $groceries->users()->attach([$karl->id, $lisa->id]);
-        $this->createInitialInstance($groceries);
+        $this->chore([
+            'title'       => 'Grocery shopping',
+            'description' => 'Weekly grocery shop',
+            'points'      => 10,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::weekdaysRule([6]),
+            'starts_on'   => $today,
+        ], [$karl, $lisa], [$kitchen]);
 
         // Meal prep (Sundays)
-        $mealPrep                = Template::create([
-            'title'              => 'Meal prep for the week',
-            'description'        => 'Prepare meals and snacks for the week ahead',
-            'points'             => 25,
-            'recurrence_type'    => 'weekly',
-            'recurrence_pattern' => ['days_of_week' => [0]], // Sunday
-        ]);
-        $mealPrep->next_due_date = $mealPrep->calculateNextDueDate();
-        $mealPrep->save();
-        $mealPrep->labels()->attach([$kitchen->id]);
-        $mealPrep->users()->attach([$karl->id, $lisa->id]);
-        $this->createInitialInstance($mealPrep);
+        $this->chore([
+            'title'       => 'Meal prep for the week',
+            'description' => 'Prepare meals and snacks for the week ahead',
+            'points'      => 25,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::weekdaysRule([0]),
+            'starts_on'   => $today,
+        ], [$karl, $lisa], [$kitchen]);
 
-        // MONTHLY TASKS
+        // MONTHLY CHORES
 
-        // Deep clean refrigerator (flexible - any day this month)
-        $fridge                = Template::create([
-            'title'              => 'Deep clean refrigerator',
-            'description'        => 'Remove all items, wipe shelves, throw out expired food',
-            'points'             => 30,
-            'recurrence_type'    => 'monthly',
-            'recurrence_pattern' => ['flexible' => true],
-        ]);
-        $fridge->next_due_date = $fridge->calculateNextDueDate();
-        $fridge->save();
-        $fridge->labels()->attach([$kitchen->id, $cleaning->id]);
-        $fridge->users()->attach([$karl->id, $lisa->id]);
+        // Deep clean refrigerator (a month after it's done)
+        $fridge = $this->chore([
+            'title'       => 'Deep clean refrigerator',
+            'description' => 'Remove all items, wipe shelves, throw out expired food',
+            'points'      => 30,
+            'schedule'    => Chore::AFTER,
+            'every'       => 1,
+            'unit'        => 'month',
+        ], [$karl, $lisa], [$kitchen, $cleaning]);
+        $this->complete($fridge, $karl, Completion::DONE, $today->subDays(10), 11);
 
         // Wash windows (1st of each month)
-        $windows                = Template::create([
-            'title'              => 'Wash all windows',
-            'description'        => 'Clean inside and outside of all windows',
-            'points'             => 30,
-            'recurrence_type'    => 'monthly',
-            'recurrence_pattern' => ['days_of_month' => [1]],
-        ]);
-        $windows->next_due_date = $windows->calculateNextDueDate();
-        $windows->save();
-        $windows->labels()->attach([$cleaning->id, $outdoor->id]);
-        $windows->users()->attach([$karl->id]);
-        $this->createInitialInstance($windows);
+        $this->chore([
+            'title'       => 'Wash all windows',
+            'description' => 'Clean inside and outside of all windows',
+            'points'      => 30,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::monthDaysRule([1]),
+            'starts_on'   => $today,
+        ], [$karl], [$cleaning, $outdoor]);
 
         // Change bed linens (15th of each month)
-        $linens                = Template::create([
-            'title'              => 'Change all bed linens',
-            'description'        => 'Wash and change sheets on all beds',
-            'points'             => 20,
-            'recurrence_type'    => 'monthly',
-            'recurrence_pattern' => ['days_of_month' => [15]],
-        ]);
-        $linens->next_due_date = $linens->calculateNextDueDate();
-        $linens->save();
-        $linens->labels()->attach([$laundry->id]);
-        $linens->users()->attach([$lisa->id]);
-        $this->createInitialInstance($linens);
+        $this->chore([
+            'title'       => 'Change all bed linens',
+            'description' => 'Wash and change sheets on all beds',
+            'points'      => 20,
+            'schedule'    => Chore::ON,
+            'rule'        => Schedule::monthDaysRule([15]),
+            'starts_on'   => $today,
+        ], [$lisa], [$laundry]);
 
-        // ONE-TIME / NO RECURRENCE TASKS
+        // ONE-OFF CHORES
 
-        // Garden work with subtemplates
-        $garden = Template::create([
-            'title'           => 'Garden maintenance',
-            'description'     => 'Complete garden overhaul',
-            'points'          => 50,
-            'recurrence_type' => 'none',
-            'deadline'        => now()->addDays(10),
-        ]);
-        $garden->labels()->attach([$outdoor->id]);
-        $garden->users()->attach([$karl->id, $leo->id]);
-
-        // Garden subtemplates (must be created before calling createInitialInstance)
-        Template::create([
-            'title'     => 'Mow the lawn',
-            'points'    => 15,
-            'parent_id' => $garden->id,
-        ]);
-
-        Template::create([
-            'title'     => 'Trim hedges',
-            'points'    => 15,
-            'parent_id' => $garden->id,
-        ]);
-
-        Template::create([
-            'title'     => 'Weed flower beds',
-            'points'    => 20,
-            'parent_id' => $garden->id,
-        ]);
-
-        // Reload to get subtemplates, then create initial task with subtasks
-        $garden->load('subtemplates');
-        $this->createInitialInstance($garden);
+        // Garden work, with its steps in the description
+        $this->chore([
+            'title'       => 'Garden maintenance',
+            'description' => "Complete garden overhaul\n\nSteps:\n- Mow the lawn\n- Trim hedges\n- Weed flower beds",
+            'points'      => 50,
+            'schedule'    => Chore::ONCE,
+            'next_due_on' => $today->addDays(10),
+        ], [$karl, $leo], [$outdoor]);
 
         // Organize garage
-        $garage = Template::create([
+        $this->chore([
             'title'       => 'Organize garage',
             'description' => 'Sort, organize and clean the garage',
             'points'      => 40,
-            'recurrence_type' => 'none',
-            'deadline'    => now()->addDays(14),
-        ]);
-        $garage->labels()->attach([$outdoor->id, $cleaning->id]);
-        $garage->users()->attach([$karl->id]);
-        $this->createInitialInstance($garage);
+            'schedule'    => Chore::ONCE,
+            'next_due_on' => $today->addDays(14),
+        ], [$karl], [$outdoor, $cleaning]);
 
         // Sort toy closet
-        $toys = Template::create([
+        $this->chore([
             'title'       => 'Sort and organize toy closet',
             'description' => 'Donate unused toys, organize remaining',
             'points'      => 20,
-            'recurrence_type' => 'none',
-            'deadline'    => now()->addDays(7),
-        ]);
-        $toys->labels()->attach([$cleaning->id]);
-        $toys->users()->attach([$leo->id, $kai->id]);
-        $this->createInitialInstance($toys);
+            'schedule'    => Chore::ONCE,
+            'next_due_on' => $today->addDays(7),
+        ], [$leo, $kai], [$cleaning]);
     }
 }
