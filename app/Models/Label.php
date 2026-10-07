@@ -16,4 +16,9 @@ class Label extends Model
     {
         return $this->belongsToMany(Template::class);
     }
+
+    public function chores(): BelongsToMany
+    {
+        return $this->belongsToMany(Chore::class);
+    }
 }
