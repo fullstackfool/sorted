@@ -2,6 +2,12 @@
     <MainLayout>
         <div class="min-h-screen bg-gray-900 text-gray-100">
             <div class="max-w-7xl mx-auto p-6">
+                <div class="flex justify-end mb-6">
+                    <IconButton variant="blue" size="md" :href="route('chores.create')">
+                        New chore
+                    </IconButton>
+                </div>
+
                 <!-- Chores Table -->
                 <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
                     <table class="w-full">

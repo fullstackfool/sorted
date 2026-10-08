@@ -30,6 +30,11 @@ class Schedule
         'SU' => 'Sun',
     ];
 
+    /**
+     * RRULE weekday codes in the UI's order, 0 = Sun … 6 = Sat.
+     */
+    private const UI_WEEKDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
     public function __construct(
         private string $kind,
         private ?int $every = null,
@@ -90,7 +95,7 @@ class Schedule
      */
     public static function weekdaysRule(array $weekdays, int $every = 1): string
     {
-        $picked = array_map(fn (int $day) => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][$day], $weekdays);
+        $picked = array_map(fn (int $day) => self::UI_WEEKDAYS[$day], $weekdays);
         $byDay  = implode(',', array_intersect(array_keys(self::DAYS), $picked));
 
         return 'FREQ=WEEKLY' . ($every > 1 ? ";INTERVAL={$every}" : '') . ";BYDAY={$byDay}";
@@ -105,6 +110,50 @@ class Schedule
         usort($days, fn (int $a, int $b) => ($a === -1 ? 32 : $a) <=> ($b === -1 ? 32 : $b));
 
         return 'FREQ=MONTHLY;BYMONTHDAY=' . implode(',', $days);
+    }
+
+    /**
+     * The chore columns for the schedule picked on the chore form.
+     *
+     * @return array{schedule: string, every: ?int, unit: ?string, rule: ?string}
+     */
+    public static function fromForm(array $input): array
+    {
+        $on = fn (string $rule) => ['schedule' => Chore::ON, 'every' => null, 'unit' => null, 'rule' => $rule];
+
+        return match ($input['repeats']) {
+            'once' => ['schedule' => Chore::ONCE, 'every' => null, 'unit' => null, 'rule' => null],
+            'daily' => $on(self::dailyRule()),
+            'weekly' => $on(self::weekdaysRule(array_map('intval', $input['weekdays']), (int) ($input['every_weeks'] ?? 1))),
+            'monthly' => $on(self::monthDaysRule(array_map('intval', $input['month_days']))),
+            'after' => ['schedule' => Chore::AFTER, 'every' => (int) $input['every'], 'unit' => $input['unit'], 'rule' => null],
+        };
+    }
+
+    /**
+     * The chore form's schedule values for a chore, the reverse of fromForm().
+     */
+    public static function toForm(Chore $chore): array
+    {
+        if ($chore->schedule === Chore::ONCE) {
+            return ['repeats' => 'once', 'due_on' => $chore->next_due_on?->toDateString()];
+        }
+
+        if ($chore->schedule === Chore::AFTER) {
+            return ['repeats' => 'after', 'every' => $chore->every, 'unit' => $chore->unit];
+        }
+
+        $rule = (new RRule($chore->rule))->getRule();
+
+        return match ($rule['FREQ']) {
+            'DAILY' => ['repeats' => 'daily'],
+            'WEEKLY' => [
+                'repeats'     => 'weekly',
+                'weekdays'    => array_keys(array_intersect(self::UI_WEEKDAYS, explode(',', $rule['BYDAY']))),
+                'every_weeks' => (int) $rule['INTERVAL'],
+            ],
+            'MONTHLY' => ['repeats' => 'monthly', 'month_days' => array_map('intval', explode(',', $rule['BYMONTHDAY']))],
+        };
     }
 
     private function ruleDescription(): string

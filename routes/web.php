@@ -18,8 +18,8 @@ Route::post('/tasks/{task}/complete', [TaskController::class, 'complete'])->name
 Route::post('/tasks/{task}/skip', [TaskController::class, 'skip'])->name('tasks.skip');
 Route::post('/tasks/{task}/reset', [TaskController::class, 'reset'])->name('tasks.reset');
 
-// Chore pages (the list, each chore's page and deleting)
-Route::resource('chores', ChoreController::class)->only(['index', 'show', 'destroy']);
+// Chore pages (the list, each chore's page, the form for creating and editing, and deleting)
+Route::resource('chores', ChoreController::class);
 
 // Chore action routes (for completing/skipping chores and undoing their latest completion)
 Route::post('/chores/{chore}/complete', [CompletionController::class, 'complete'])->name('chores.complete');

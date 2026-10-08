@@ -18,13 +18,18 @@
 
                 <!-- Chore Header -->
                 <div class="bg-gray-800 rounded-lg p-8 border border-gray-700 mb-6">
-                    <div class="mb-4">
-                        <h1 class="text-4xl font-bold mb-2">
-                            {{ chore.title }}
-                        </h1>
-                        <p v-if="chore.description" class="text-gray-400 text-lg">
-                            {{ chore.description }}
-                        </p>
+                    <div class="flex items-start justify-between mb-4">
+                        <div class="flex-1">
+                            <h1 class="text-4xl font-bold mb-2">
+                                {{ chore.title }}
+                            </h1>
+                            <p v-if="chore.description" class="text-gray-400 text-lg">
+                                {{ chore.description }}
+                            </p>
+                        </div>
+                        <IconButton variant="blue" size="sm" :href="route('chores.edit', chore.id)">
+                            Edit
+                        </IconButton>
                     </div>
 
                     <!-- Chore Details -->
@@ -222,6 +227,7 @@
 import { Link } from '@inertiajs/vue3';
 import route from 'ziggy';
 import MainLayout from '@/Layouts/MainLayout.vue';
+import IconButton from '@/Components/IconButton.vue';
 
 defineProps({
     chore: Object,
