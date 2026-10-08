@@ -6,6 +6,7 @@ use App\Casts\DateOnly;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 class Completion extends Model
 {
@@ -42,5 +43,30 @@ class Completion extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Remove this completion and put its chore back on the date it was due before.
+     *
+     * Only the chore's most recent completion can be undone; for any other this changes nothing and returns false.
+     */
+    public function undo(): bool
+    {
+        return DB::transaction(function () {
+            $latest = static::query()
+                ->where('chore_id', $this->chore_id)
+                ->orderByDesc('completed_at')
+                ->orderByDesc('id')
+                ->first();
+
+            if (! $this->is($latest)) {
+                return false;
+            }
+
+            $this->chore->update(['next_due_on' => $this->due_on, 'finished_at' => null]);
+            $this->delete();
+
+            return true;
+        });
     }
 }
