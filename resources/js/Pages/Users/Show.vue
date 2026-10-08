@@ -132,8 +132,8 @@
                         </h2>
                     </div>
                     <div class="p-6">
-                        <div v-if="user.tasks && user.tasks.length" class="space-y-3">
-                            <div v-for="task in user.tasks" :key="task.id" class="flex items-center justify-between p-4 bg-gray-750 rounded-lg">
+                        <div v-if="user.chores && user.chores.length" class="space-y-3">
+                            <div v-for="task in user.chores" :key="task.id" class="flex items-center justify-between p-4 bg-gray-750 rounded-lg">
                                 <div class="flex-1">
                                     <div class="font-medium">
                                         {{ task.title }}
@@ -168,17 +168,14 @@
                         </h2>
                     </div>
                     <div class="p-6">
-                        <div v-if="user.completions && user.completions.length" class="space-y-3">
-                            <div v-for="instance in user.completions" :key="instance.id" class="flex items-center justify-between p-4 bg-gray-750 rounded-lg">
+                        <div v-if="recentCompletions.length" class="space-y-3">
+                            <div v-for="instance in recentCompletions" :key="instance.id" class="flex items-center justify-between p-4 bg-gray-750 rounded-lg">
                                 <div class="flex-1">
                                     <div class="font-medium">
-                                        {{ instance.task?.title || 'Unknown Task' }}
+                                        {{ instance.chore.title }}
                                     </div>
                                     <div class="text-sm text-gray-400 mt-1">
-                                        {{ formatDate(instance.date) }}
-                                    </div>
-                                    <div v-if="instance.notes" class="text-sm text-gray-500 mt-1">
-                                        {{ instance.notes }}
+                                        {{ formatDate(instance.completed_at) }}
                                     </div>
                                 </div>
                                 <div class="text-right ml-4">
@@ -187,7 +184,7 @@
                                              'text-green-400': instance.status === 'done',
                                              'text-yellow-400': instance.status === 'skipped'
                                          }">
-                                        <span v-if="instance.status === 'done'">+{{ instance.task?.points || 0 }} pts</span>
+                                        <span v-if="instance.status === 'done'">+{{ instance.points }} pts</span>
                                         <span v-else>Skipped</span>
                                     </div>
                                 </div>
@@ -220,6 +217,7 @@ import ConfirmModal from '@/Components/ConfirmModal.vue';
 const props = defineProps({
     user: Object,
     stats: Object,
+    recentCompletions: Array,
 });
 
 const showDeleteModal = ref(false);

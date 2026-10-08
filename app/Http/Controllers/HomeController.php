@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Label;
 use App\Models\Task;
-use App\Models\User;
+use App\Support\Scoreboard;
 use Inertia\Inertia;
 
 class HomeController extends Controller
@@ -100,75 +100,12 @@ class HomeController extends Controller
             })
             ->values();
 
-        // Get users with their stats for the scoreboard
-        $users = User::all(['id', 'name', 'avatar_style', 'avatar_seed'])->map(function ($user) {
-            // Get weekly points (current week starting from Sunday)
-            $weekStart = now()->startOfWeek(0); // 0 = Sunday
-            $weekEnd   = now()->endOfWeek(6);   // 6 = Saturday
-
-            $weeklyPoints = Task::where('tasks.user_id', $user->id)
-                ->where('tasks.status', 'done')
-                ->whereBetween('tasks.completed_at', [$weekStart, $weekEnd])
-                ->join('templates', 'tasks.template_id', '=', 'templates.id')
-                ->sum('templates.points');
-
-            // Get today's points
-            $todayPoints = Task::where('tasks.user_id', $user->id)
-                ->where('tasks.status', 'done')
-                ->whereDate('tasks.completed_at', today())
-                ->join('templates', 'tasks.template_id', '=', 'templates.id')
-                ->sum('templates.points');
-
-            // Calculate current streak
-            $streak = $this->calculateStreak($user->id);
-
-            return [
-                'id'             => $user->id,
-                'name'           => $user->name,
-                'avatar_url'     => $user->avatar_url,
-                'weekly_points'  => $weeklyPoints,
-                'today_points'   => $todayPoints,
-                'current_streak' => $streak,
-            ];
-        });
-
         $labels = Label::all(['id', 'name', 'color']);
 
         return Inertia::render('Today/Index', [
             'tasks'  => $tasks,
-            'users'  => $users,
+            'users'  => Scoreboard::forEveryone(),
             'labels' => $labels,
         ]);
-    }
-
-    /**
-     * Calculate the current streak for a user
-     */
-    private function calculateStreak($userId)
-    {
-        $streak      = 0;
-        $currentDate = now()->startOfDay();
-
-        // Go backwards from today to find consecutive days with completed tasks
-        while (true) {
-            $hasCompletedTask = Task::where('user_id', $userId)
-                ->where('status', 'done')
-                ->whereDate('completed_at', $currentDate)
-                ->exists();
-
-            if (!$hasCompletedTask) {
-                // If today has no completed tasks yet and streak is 0, check yesterday
-                if ($streak === 0 && $currentDate->isToday()) {
-                    $currentDate->subDay();
-                    continue;
-                }
-                break;
-            }
-
-            $streak++;
-            $currentDate->subDay();
-        }
-
-        return $streak;
     }
 }
