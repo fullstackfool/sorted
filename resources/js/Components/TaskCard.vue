@@ -6,20 +6,15 @@
             <!-- Task Info -->
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-3 mb-2">
-                    <Link :href="route('templates.show', task.template_id)"
+                    <Link :href="route('templates.show', task.id)"
                           class="text-lg font-semibold hover:text-blue-400 transition cursor-pointer"
-                          :class="statusClass"
                           @click.stop>
                         {{ task.title }}
                     </Link>
-                    <span v-if="task.subtasks && task.subtasks.length"
-                          class="text-xs text-gray-400">
-                        ({{ completedSubtasksCount }}/{{ task.subtasks.length }} subtasks)
-                    </span>
                 </div>
 
                 <div class="flex items-center gap-4 text-sm">
-                    <!-- Assigned Users or Completed By -->
+                    <!-- Assigned Users -->
                     <div class="flex items-center gap-2">
                         <svg class="w-4 h-4 text-gray-500"
                              fill="none"
@@ -30,17 +25,7 @@
                                   stroke-width="2"
                                   d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
-                        <span v-if="task.status === 'done' && task.completed_by"
-                              class="text-green-400 flex items-center gap-1">
-                            <span>&#10003;</span>
-                            <span>{{ task.completed_by.name }}</span>
-                        </span>
-                        <span v-else-if="task.status === 'skipped' && task.completed_by"
-                              class="text-yellow-400 flex items-center gap-1">
-                            <font-awesome-icon icon="share" class="w-3 h-3" />
-                            <span>{{ task.completed_by.name }}</span>
-                        </span>
-                        <span v-else-if="task.assigned_users && task.assigned_users.length"
+                        <span v-if="task.assigned_users && task.assigned_users.length"
                               class="text-gray-300">
                             {{ task.assigned_users.map(u => u.name).join(', ') }}
                         </span>
@@ -57,8 +42,8 @@
                         </span>
                     </div>
 
-                    <!-- Due Date Badge (only for "later" group) -->
-                    <span v-if="showDateBadge && task.date"
+                    <!-- Due Date Badge (only for "overdue" group) -->
+                    <span v-if="showDateBadge && task.due_on"
                           class="inline-flex items-center gap-1 text-xs text-blue-400">
                         <svg class="w-3 h-3"
                              fill="none"
@@ -69,7 +54,7 @@
                                   stroke-width="2"
                                   d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
-                        {{ formatDateShort(task.date) }}
+                        {{ formatDateShort(task.due_on) }}
                     </span>
                 </div>
             </div>
@@ -86,8 +71,7 @@
 
             <!-- Action Buttons -->
             <div class="flex gap-2" @click.stop>
-                <IconButton v-if="task.status === 'todo'"
-                            variant="gray"
+                <IconButton variant="gray"
                             :title="isExpanded ? 'Collapse' : 'Expand Details'"
                             @click="$emit('toggle-expand', task.id)">
                     <svg class="w-5 h-5 transition-transform"
@@ -101,23 +85,15 @@
                               d="M19 9l-7 7-7-7" />
                     </svg>
                 </IconButton>
-                <IconButton v-if="task.status === 'todo'"
-                            variant="gray"
+                <IconButton variant="gray"
                             title="Skip"
                             @click="$emit('skip', task.id)">
                     <font-awesome-icon icon="share" class="w-5 h-5" />
                 </IconButton>
-                <IconButton v-if="task.status === 'todo'"
-                            variant="green"
+                <IconButton variant="green"
                             title="Complete"
                             @click="$emit('complete', task.id)">
                     &#10003;
-                </IconButton>
-                <IconButton v-if="task.status !== 'todo'"
-                            variant="blue"
-                            title="Reset"
-                            @click="$emit('reset', task.id)">
-                    &#8634;
                 </IconButton>
             </div>
         </div>
@@ -143,8 +119,7 @@
                             Schedule
                         </h4>
                         <p class="text-gray-300 flex items-center gap-2">
-                            <svg v-if="task.recurrence_type !== 'none'"
-                                 class="w-4 h-4 text-blue-400"
+                            <svg class="w-4 h-4 text-blue-400"
                                  fill="none"
                                  stroke="currentColor"
                                  viewBox="0 0 24 24">
@@ -153,9 +128,7 @@
                                       stroke-width="2"
                                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
-                            <span>{{
-                                    task.recurrence_description || (task.recurrence_type === 'none' ? 'One-time task' : task.recurrence_type)
-                                  }}</span>
+                            <span>{{ task.schedule_description }}</span>
                         </p>
                     </div>
 
@@ -179,7 +152,7 @@
                     </div>
 
                     <!-- Due Date -->
-                    <div v-if="task.date">
+                    <div v-if="task.due_on">
                         <h4 class="text-sm font-semibold text-gray-400 uppercase mb-2">
                             Due Date
                         </h4>
@@ -193,74 +166,8 @@
                                       stroke-width="2"
                                       d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <span>{{ formatDate(task.date) }}</span>
+                            <span>{{ formatDate(task.due_on) }}</span>
                         </p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Subtasks -->
-            <div v-if="task.subtasks && task.subtasks.length">
-                <div class="flex items-center gap-3 mb-3">
-                    <h4 class="text-sm font-semibold text-gray-400 uppercase whitespace-nowrap">
-                        Subtasks
-                    </h4>
-                    <div class="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div class="h-full bg-gradient-to-r from-blue-500 to-green-500 transition-all duration-300"
-                             :style="{ width: `${(completedSubtasksCount / task.subtasks.length) * 100}%` }">
-                        </div>
-                    </div>
-                    <span class="text-xs text-gray-400 whitespace-nowrap">
-                        {{ completedSubtasksCount }}/{{ task.subtasks.length }}
-                    </span>
-                </div>
-                <div class="space-y-2">
-                    <div v-for="subtask in task.subtasks"
-                         :key="subtask.id"
-                         class="flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700">
-                        <div class="flex items-center gap-3 flex-1">
-                            <div class="w-2 h-2 rounded-full"
-                                 :class="{
-                                 'bg-green-500': subtask.status === 'done',
-                                 'bg-yellow-500': subtask.status === 'skipped',
-                                 'bg-blue-500': subtask.status === 'todo'
-                             }" />
-                            <span class="font-medium" :class="getStatusClass(subtask.status)">
-                                {{ subtask.title }}
-                            </span>
-                            <span v-if="subtask.status !== 'todo' && subtask.completed_by"
-                                  class="text-xs"
-                                  :class="{
-                                  'text-green-400': subtask.status === 'done',
-                                  'text-yellow-400': subtask.status === 'skipped'
-                              }">
-                                by {{ subtask.completed_by.name }}
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <span class="text-blue-400 font-semibold">{{ subtask.points }} pts</span>
-                            <div v-if="subtask.status === 'todo'" class="flex gap-2">
-                                <IconButton variant="gray"
-                                            size="sm"
-                                            title="Skip Subtask"
-                                            @click="$emit('skip', subtask.id)">
-                                    <font-awesome-icon icon="share" class="w-3 h-3" />
-                                </IconButton>
-                                <IconButton variant="green"
-                                            size="sm"
-                                            title="Complete Subtask"
-                                            @click="$emit('complete', subtask.id)">
-                                    &#10003;
-                                </IconButton>
-                            </div>
-                            <IconButton v-else
-                                        variant="blue"
-                                        size="sm"
-                                        title="Reset"
-                                        @click="$emit('reset', subtask.id)">
-                                &#8634;
-                            </IconButton>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -269,12 +176,11 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { Link } from '@inertiajs/vue3';
 import route from 'ziggy';
 import IconButton from '@/Components/IconButton.vue';
 
-const props = defineProps({
+defineProps({
     task: {
         type: Object,
         required: true,
@@ -289,20 +195,7 @@ const props = defineProps({
     },
 });
 
-defineEmits(['toggle-expand', 'complete', 'skip', 'reset']);
-
-const statusClass = computed(() => getStatusClass(props.task.status));
-
-const completedSubtasksCount = computed(() => {
-    if (!props.task.subtasks) return 0;
-    return props.task.subtasks.filter(st => st.status === 'done' || st.status === 'skipped').length;
-});
-
-const getStatusClass = (status) => {
-    if (status === 'done') return 'line-through text-gray-500';
-    if (status === 'skipped') return 'line-through text-gray-600';
-    return '';
-};
+defineEmits(['toggle-expand', 'complete', 'skip']);
 
 const formatDate = (dateString) => {
     const date = new Date(dateString);

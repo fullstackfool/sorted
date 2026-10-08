@@ -113,11 +113,10 @@
                                   :key="task.id"
                                   :task="task"
                                   :is-expanded="expandedTaskId === task.id"
-                                  :show-date-badge="group.key === 'later'"
+                                  :show-date-badge="group.key === 'overdue'"
                                   @toggle-expand="toggleTaskExpand"
-                                  @complete="(id) => showUserModal('complete', id)"
-                                  @skip="(id) => showUserModal('skip', id)"
-                                  @reset="resetTask" />
+                                  @complete="showUserModal('complete', task)"
+                                  @skip="showUserModal('skip', task)" />
                     </div>
                 </div>
 
@@ -139,7 +138,7 @@
                 </div>
 
                 <!-- Empty Filter State -->
-                <div v-else-if="hasActiveFilter && groupedTasks.today.length === 0 && groupedTasks.tomorrow.length === 0"
+                <div v-else-if="hasActiveFilter && visibleGroups.length === 0"
                      class="text-center py-16">
                     <svg class="w-16 h-16 mx-auto text-gray-600 mb-4"
                          fill="none"
@@ -156,7 +155,7 @@
                 </div>
 
                 <!-- No Tasks At All State -->
-                <div v-else-if="props.tasks.length === 0"
+                <div v-else-if="props.chores.length === 0"
                      class="text-center py-16">
                     <svg class="w-16 h-16 mx-auto text-gray-600 mb-4"
                          fill="none"
@@ -170,6 +169,59 @@
                     <p class="text-xl text-gray-500">
                         No tasks yet. Create a template to get started!
                     </p>
+                </div>
+
+                <!-- Done Today -->
+                <div v-if="done.length" class="mb-8">
+                    <h2 class="text-2xl font-bold mb-4 flex items-center gap-2 text-gray-400">
+                        <svg class="w-6 h-6"
+                             fill="none"
+                             stroke="currentColor"
+                             viewBox="0 0 24 24">
+                            <path stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  stroke-width="2"
+                                  d="M5 13l4 4L19 7" />
+                        </svg>
+                        Done today
+                    </h2>
+
+                    <div class="space-y-3">
+                        <div v-for="completion in done"
+                             :key="completion.id"
+                             class="flex items-center gap-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                            <div class="flex-1 min-w-0">
+                                <div class="text-lg font-semibold line-through text-gray-500 mb-2">
+                                    {{ completion.title }}
+                                </div>
+                                <div class="text-sm flex items-center gap-1"
+                                     :class="completion.status === 'done' ? 'text-green-400' : 'text-yellow-400'">
+                                    <span v-if="completion.status === 'done'">&#10003; Done</span>
+                                    <template v-else>
+                                        <font-awesome-icon icon="share" class="w-3 h-3" />
+                                        <span>Skipped</span>
+                                    </template>
+                                    <span v-if="completion.completed_by">by {{ completion.completed_by.name }}</span>
+                                </div>
+                            </div>
+
+                            <div class="text-center px-4">
+                                <div class="text-2xl font-bold text-gray-500">
+                                    {{ completion.points }}
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    pts
+                                </div>
+                            </div>
+
+                            <IconButton v-if="completion.can_undo"
+                                        variant="blue"
+                                        title="Undo"
+                                        @click="undoCompletion(completion)">
+                                &#8634;
+                            </IconButton>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -197,9 +249,11 @@ import UserSelectionModal from '@/Components/UserSelectionModal.vue';
 import Scoreboard from '@/Components/Scoreboard.vue';
 import CelebrationAnimation from '@/Components/CelebrationAnimation.vue';
 import TaskCard from '@/Components/TaskCard.vue';
+import IconButton from '@/Components/IconButton.vue';
 
 const props = defineProps({
-    tasks: Array,
+    chores: Array,
+    done: Array,
     users: Array,
     labels: Array,
 });
@@ -211,7 +265,7 @@ const selectedPeriod  = ref(null);
 
 const showModal     = ref(false);
 const pendingAction = ref(null);
-const pendingTaskId = ref(null);
+const pendingChore  = ref(null);
 
 const expandedTaskId = ref(null);
 
@@ -231,21 +285,24 @@ const periods = [
 ];
 
 const groupIcons = {
+    overdue: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
     today: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
     tomorrow: 'M9 5l7 7-7 7',
-    later: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+    anytime: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
 };
 
 const groupColors = {
+    overdue: 'text-orange-400',
     today: 'text-blue-400',
     tomorrow: 'text-green-400',
-    later: 'text-gray-400',
+    anytime: 'text-gray-400',
 };
 
 const groupLabels = {
+    overdue: 'Overdue',
     today: 'Today',
     tomorrow: 'Tomorrow',
-    later: 'Later',
+    anytime: 'Any time',
 };
 
 const hasActiveFilter = computed(() => {
@@ -254,11 +311,11 @@ const hasActiveFilter = computed(() => {
 
 const filteredTasks = computed(() => {
     if (!filterMode.value) {
-        return props.tasks;
+        return props.chores;
     }
 
     if (filterMode.value === 'user' && selectedUserId.value) {
-        return props.tasks.filter(task => {
+        return props.chores.filter(task => {
             if (selectedUserId.value === 'unassigned') {
                 return !task.assigned_users || task.assigned_users.length === 0;
             }
@@ -270,11 +327,11 @@ const filteredTasks = computed(() => {
     }
 
     if (filterMode.value === 'period' && selectedPeriod.value) {
-        return props.tasks.filter(task => matchesPeriod(task, selectedPeriod.value));
+        return props.chores.filter(task => matchesPeriod(task, selectedPeriod.value));
     }
 
     if (filterMode.value === 'label' && selectedLabelId.value) {
-        return props.tasks.filter(task => {
+        return props.chores.filter(task => {
             if (!task.labels || task.labels.length === 0) {
                 return false;
             }
@@ -282,64 +339,25 @@ const filteredTasks = computed(() => {
         });
     }
 
-    return props.tasks;
+    return props.chores;
 });
 
-const getTaskDueGroup = (task) => {
-    const dateString = task.date;
-    if (!dateString) return 'later';
-
-    const date = new Date(dateString);
-    date.setHours(0, 0, 0, 0);
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    if (date.getTime() === today.getTime()) return 'today';
-    if (date.getTime() === tomorrow.getTime()) return 'tomorrow';
-    return 'later';
-};
-
 const groupedTasks = computed(() => {
-    const tasks = filteredTasks.value;
-
     const groups = {
+        overdue: [],
         today: [],
         tomorrow: [],
-        later: [],
+        anytime: [],
     };
 
-    tasks.forEach(task => {
-        const group = getTaskDueGroup(task);
-        groups[group].push(task);
-    });
-
-    // Sort: todo first, then done/skipped. Within each, sort by date.
-    const sortTasks = (a, b) => {
-        const aIsTodo = a.status === 'todo';
-        const bIsTodo = b.status === 'todo';
-        if (aIsTodo !== bIsTodo) return aIsTodo ? -1 : 1;
-
-        const dateA = a.date;
-        const dateB = b.date;
-        if (!dateA && !dateB) return 0;
-        if (!dateA) return 1;
-        if (!dateB) return -1;
-        return new Date(dateA).getTime() - new Date(dateB).getTime();
-    };
-
-    groups.today.sort(sortTasks);
-    groups.tomorrow.sort(sortTasks);
-    groups.later.sort(sortTasks);
+    // The server works out each chore's group and sends them already in order.
+    filteredTasks.value.forEach(task => groups[task.group].push(task));
 
     return groups;
 });
 
 const visibleGroups = computed(() => {
-    return ['today', 'tomorrow', 'later']
+    return ['overdue', 'today', 'tomorrow', 'anytime']
         .filter(key => groupedTasks.value[key].length > 0)
         .map(key => ({
             key,
@@ -350,16 +368,10 @@ const visibleGroups = computed(() => {
         }));
 });
 
-// "All done" = today group has tasks but none are todo
+// "All done" = nothing left overdue or due today, and something was done today
 const allTodayDone = computed(() => {
-    const todayTasks = groupedTasks.value.today;
-    if (todayTasks.length === 0) {
-        // No tasks at all for today - check if there are any in the unfiltered source
-        const allTodayTasks = props.tasks.filter(t => getTaskDueGroup(t) === 'today');
-        if (allTodayTasks.length === 0) return false;
-        return allTodayTasks.every(t => t.status !== 'todo');
-    }
-    return todayTasks.every(t => t.status !== 'todo');
+    const left = props.chores.filter(chore => chore.group === 'overdue' || chore.group === 'today');
+    return left.length === 0 && props.done.length > 0;
 });
 
 // Super-celebration when all today tasks become done
@@ -375,9 +387,10 @@ const matchesPeriod = (task, period) => {
     const now   = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
+    // Weeks start on Monday
     const getStartOfWeek = (date) => {
         const d    = new Date(date);
-        const day  = d.getDay();
+        const day  = (d.getDay() + 6) % 7;
         const diff = d.getDate() - day;
         return new Date(d.getFullYear(), d.getMonth(), diff);
     };
@@ -402,24 +415,24 @@ const matchesPeriod = (task, period) => {
         return dateOnly >= startDate && dateOnly <= endDate;
     };
 
-    if (!task.date) {
+    if (!task.due_on) {
         return period === 'nodate';
     }
 
     if (period === 'today') {
-        return isDateInRange(task.date, today, today);
+        return isDateInRange(task.due_on, today, today);
     }
 
     if (period === 'week') {
-        return isDateInRange(task.date, getStartOfWeek(today), getEndOfWeek(today));
+        return isDateInRange(task.due_on, getStartOfWeek(today), getEndOfWeek(today));
     }
 
     if (period === 'month') {
-        return isDateInRange(task.date, getStartOfMonth(today), getEndOfMonth(today));
+        return isDateInRange(task.due_on, getStartOfMonth(today), getEndOfMonth(today));
     }
 
     if (period === 'nodate') {
-        return !task.date;
+        return !task.due_on;
     }
 
     return false;
@@ -444,63 +457,47 @@ const clearFilter = () => {
     selectedPeriod.value  = null;
 };
 
-const showUserModal = (action, taskId) => {
+const showUserModal = (action, chore) => {
     pendingAction.value = action;
-    pendingTaskId.value = taskId;
+    pendingChore.value  = chore;
     showModal.value     = true;
 };
 
 const closeUserModal = () => {
     showModal.value     = false;
     pendingAction.value = null;
-    pendingTaskId.value = null;
-};
-
-const findTask = (taskId) => {
-    let task = props.tasks.find(t => t.id === taskId);
-    if (!task) {
-        for (const mainTask of props.tasks) {
-            if (mainTask.subtasks && mainTask.subtasks.length > 0) {
-                const subtask = mainTask.subtasks.find(st => st.id === taskId);
-                if (subtask) {
-                    task = subtask;
-                    break;
-                }
-            }
-        }
-    }
-    return task;
+    pendingChore.value  = null;
 };
 
 const handleUserSelect = (user) => {
     if (pendingAction.value === 'complete') {
-        const task = findTask(pendingTaskId.value);
-        if (task) {
-            celebrationPoints.value   = task.points;
-            celebrationUserName.value = user.name;
-            showCelebration.value     = true;
-        }
-        completeTask(pendingTaskId.value, user.id);
+        celebrationPoints.value   = pendingChore.value.points;
+        celebrationUserName.value = user.name;
+        showCelebration.value     = true;
+        completeTask(pendingChore.value, user.id);
     } else if (pendingAction.value === 'skip') {
-        skipTask(pendingTaskId.value, user.id);
+        skipTask(pendingChore.value, user.id);
     }
     closeUserModal();
 };
 
-const completeTask = (taskId, userId) => {
-    router.post(route('tasks.complete', taskId), {
+// The chore's due date is sent exactly as shown, so a repeated or stale request records nothing.
+const completeTask = (chore, userId) => {
+    router.post(route('chores.complete', chore.id), {
         user_id: userId,
+        due_on: chore.due_on,
     });
 };
 
-const skipTask = (taskId, userId) => {
-    router.post(route('tasks.skip', taskId), {
+const skipTask = (chore, userId) => {
+    router.post(route('chores.skip', chore.id), {
         user_id: userId,
+        due_on: chore.due_on,
     });
 };
 
-const resetTask = (taskId) => {
-    router.post(route('tasks.reset', taskId));
+const undoCompletion = (completion) => {
+    router.post(route('completions.undo', completion.id));
 };
 
 const toggleTaskExpand = (taskId) => {
