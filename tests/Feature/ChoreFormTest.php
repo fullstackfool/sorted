@@ -92,6 +92,42 @@ class ChoreFormTest extends TestCase
         $this->assertSchedule([Chore::ON, null, null, 'FREQ=WEEKLY;BYDAY=TU,FR', '2026-10-07', '2026-10-09'], $chore->refresh());
     }
 
+    public function test_a_daily_chore_done_today_and_changed_to_weekly_on_todays_weekday_is_next_due_a_week_later(): void
+    {
+        $user  = User::factory()->create();
+        $chore = Chore::factory()->create(['title' => 'Water the plants', 'next_due_on' => '2026-10-07']);
+        $this->post(route('chores.complete', $chore), ['user_id' => $user->id, 'due_on' => '2026-10-07'])->assertRedirect();
+
+        // 3 is Wednesday, today's weekday.
+        $this->put(route('chores.update', $chore), ['title' => 'Water the plants', 'repeats' => 'weekly', 'weekdays' => [3], 'every_weeks' => 1])
+            ->assertRedirect();
+
+        $this->assertSchedule([Chore::ON, null, null, 'FREQ=WEEKLY;BYDAY=WE', '2026-10-07', '2026-10-14'], $chore->refresh());
+
+        $this->post(route('chores.complete', $chore), ['user_id' => $user->id, 'due_on' => '2026-10-07'])->assertRedirect();
+
+        $this->assertSame(1, $chore->completions()->count());
+        $this->assertSame('2026-10-14', $chore->refresh()->next_due_on->toDateString());
+    }
+
+    public function test_a_chore_not_done_today_and_changed_to_include_todays_weekday_is_due_today(): void
+    {
+        $user  = User::factory()->create();
+        $chore = Chore::factory()->create([
+            'title'       => 'Take out bins',
+            'rule'        => 'FREQ=WEEKLY;BYDAY=TU,TH',
+            'starts_on'   => '2026-09-01',
+            'next_due_on' => '2026-10-08',
+        ]);
+        Completion::factory()->for($user)->for($chore)->create(['due_on' => '2026-10-06', 'completed_at' => '2026-10-06 20:00:00']);
+
+        // 3 is Wednesday, today's weekday.
+        $this->put(route('chores.update', $chore), ['title' => 'Take out bins', 'repeats' => 'weekly', 'weekdays' => [3, 4], 'every_weeks' => 1])
+            ->assertRedirect();
+
+        $this->assertSchedule([Chore::ON, null, null, 'FREQ=WEEKLY;BYDAY=WE,TH', '2026-10-07', '2026-10-07'], $chore->refresh());
+    }
+
     public function test_changing_a_chore_to_after_its_done_makes_it_due_that_long_after_its_latest_completion(): void
     {
         $user  = User::factory()->create();
@@ -129,7 +165,8 @@ class ChoreFormTest extends TestCase
             ->assertRedirect();
 
         $this->assertNull($toDaily->refresh()->finished_at);
-        $this->assertSchedule([Chore::ON, null, null, 'FREQ=DAILY', '2026-10-07', '2026-10-07'], $toDaily);
+        // Done today, so due tomorrow.
+        $this->assertSchedule([Chore::ON, null, null, 'FREQ=DAILY', '2026-10-07', '2026-10-08'], $toDaily);
         $this->assertNull($toAfter->refresh()->finished_at);
         // Done on 4 October, so due 3 days later.
         $this->assertSchedule([Chore::AFTER, 3, 'day', null, null, '2026-10-07'], $toAfter);

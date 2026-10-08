@@ -164,13 +164,16 @@ class ChoreController extends Controller
         if ($chore->isDirty(['schedule', 'every', 'unit', 'rule', 'next_due_on'])) {
             $chore->starts_on   = $chore->schedule === Chore::ON ? $today : null;
             $chore->finished_at = $chore->schedule === Chore::ONCE ? $chore->finished_at : null;
-            $lastDoneAt         = $chore->schedule === Chore::AFTER
+            $lastDoneAt         = $chore->schedule !== Chore::ONCE
                 ? $chore->completions()->latest('completed_at')->latest('id')->first()?->completed_at
                 : null;
 
             $chore->next_due_on = match ($chore->schedule) {
                 Chore::ONCE => $chore->next_due_on,
-                Chore::ON => Schedule::of($chore)->firstDueOn($today),
+                // Already done or skipped today, so the first scheduled day after today.
+                Chore::ON => $lastDoneAt?->isSameDay($today)
+                    ? Schedule::of($chore)->nextDueOn(null, $today)
+                    : Schedule::of($chore)->firstDueOn($today),
                 Chore::AFTER => $lastDoneAt
                     ? Schedule::of($chore)->nextDueOn(null, $lastDoneAt->toImmutable())
                     : Schedule::of($chore)->firstDueOn($today),

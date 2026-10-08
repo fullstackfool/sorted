@@ -19,7 +19,11 @@ ending in `_sorted`.
 
 On start, the current database is moved to that folder as `before-import.sqlite`,
 the import is loaded, and your file is renamed `imported.sqlite` so it only loads
-once. The imported chores keep their dates, and each overdue one shows once.
+once. A database from this version keeps its chores and their dates, and each
+overdue one shows once. A database from an older version, before chores replaced
+templates and tasks, keeps its people and labels but loses all its chores and
+their history, points included: the old tables are removed on start without being
+converted.
 
 ## Logs
 

@@ -85,6 +85,9 @@ from the project folder.
    it `import.sqlite`.
 3. Restart Sorted. The log shows "Importing import.sqlite". The previous database is
    kept in the same folder as `before-import.sqlite`, and the file you copied is
-   renamed `imported.sqlite` so it only loads once. The imported chores keep their
-   dates, and each overdue one shows once.
+   renamed `imported.sqlite` so it only loads once. A database from this version
+   keeps its chores and their dates, and each overdue one shows once. A database
+   from an older version, before chores replaced templates and tasks, keeps its
+   people and labels but loses all its chores and their history, points included:
+   the old tables are removed on start without being converted.
 4. Stop the Samba share app.

@@ -143,4 +143,23 @@ class TodayScreenTest extends TestCase
         ], array_map(fn (array $item) => Arr::except($item, 'completed_at'), $done));
         $this->assertTrue(CarbonImmutable::parse($done[0]['completed_at'])->eq(CarbonImmutable::create(2026, 10, 7, 11, 0, 0, 'Europe/London')));
     }
+
+    public function test_a_chore_done_today_then_deleted_leaves_done_today_and_its_completion_cannot_be_undone(): void
+    {
+        $deleted = Chore::factory()->create(['title' => 'Water the plants', 'points' => 5, 'next_due_on' => '2026-10-07']);
+        $kept    = Chore::factory()->create(['title' => 'Feed the cat', 'points' => 10, 'next_due_on' => '2026-10-07']);
+        foreach ([$deleted, $kept] as $chore) {
+            $this->post(route('chores.complete', $chore), ['user_id' => $this->user->id, 'due_on' => '2026-10-07'])->assertRedirect();
+        }
+        $completion = $deleted->completions()->sole();
+        $this->delete(route('chores.destroy', $deleted))->assertRedirect();
+
+        $this->assertSame([$kept->id], array_column($this->get(route('home'))->assertOk()->inertiaProps('done'), 'chore_id'));
+
+        $this->post(route('completions.undo', $completion))->assertRedirect();
+
+        $this->assertModelExists($completion);
+        $score = collect($this->get(route('home'))->inertiaProps('users'))->firstWhere('id', $this->user->id);
+        $this->assertSame(5 + 10, $score['today_points']);
+    }
 }

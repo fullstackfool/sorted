@@ -46,6 +46,7 @@ class HomeController extends Controller
         // Latest first, the same order Completion::undo() uses, so each chore's first entry is its latest completion.
         $completions = Completion::query()
             ->with(['chore', 'user'])
+            ->whereHas('chore', fn ($query) => $query->withoutTrashed())
             ->whereBetween('completed_at', [$today, $today->endOfDay()])
             ->orderByDesc('completed_at')
             ->orderByDesc('id')

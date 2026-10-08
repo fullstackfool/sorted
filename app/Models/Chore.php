@@ -64,17 +64,26 @@ class Chore extends Model
     /**
      * Record that $user did or skipped the chore, and move it on to its next due date.
      *
-     * Records nothing when the chore is deleted, finished or no longer due on the date the page showed,
+     * Records nothing when the chore is deleted, finished, no longer due on the date the page showed,
+     * or already done or skipped today for that date (an "after" chore done early can be due on the same date again),
      * so a repeated request only counts once.
+     *
+     * SQLite has no row locks, so a request that collides with another's write is retried and then sees the moved date.
+     * The next date is worked out before writing, to keep the write lock short.
      */
     public function record(User $user, string $status, ?string $shownDueOn): ?Completion
     {
         return DB::transaction(function () use ($user, $status, $shownDueOn) {
-            $chore = static::query()->lockForUpdate()->find($this->getKey());
+            $chore = static::query()->find($this->getKey());
 
-            if (! $chore || $chore->finished_at !== null || $chore->next_due_on?->format('Y-m-d') !== $shownDueOn) {
+            if (! $chore || $chore->finished_at !== null || $chore->next_due_on?->format('Y-m-d') !== $shownDueOn
+                || $chore->completions()->where('due_on', $shownDueOn)->where('completed_at', '>=', today())->exists()) {
                 return null;
             }
+
+            $moveOn = $chore->schedule === self::ONCE
+                ? ['finished_at' => now()]
+                : ['next_due_on' => Schedule::of($chore)->nextDueOn($chore->next_due_on, today()->toImmutable())];
 
             $completion = $chore->completions()->create([
                 'user_id'      => $user->id,
@@ -83,16 +92,9 @@ class Chore extends Model
                 'points'       => $status === Completion::DONE ? $chore->points : 0,
                 'completed_at' => now(),
             ]);
-
-            if ($chore->schedule === self::ONCE) {
-                $chore->update(['finished_at' => now()]);
-            } else {
-                $chore->update([
-                    'next_due_on' => Schedule::of($chore)->nextDueOn($chore->next_due_on, today()->toImmutable()),
-                ]);
-            }
+            $chore->update($moveOn);
 
             return $completion;
-        });
+        }, attempts: 5);
     }
 }

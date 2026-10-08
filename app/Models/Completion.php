@@ -48,7 +48,8 @@ class Completion extends Model
     /**
      * Remove this completion and put its chore back on the date it was due before.
      *
-     * Only the chore's most recent completion can be undone; for any other this changes nothing and returns false.
+     * Only the chore's most recent completion can be undone, and not once the chore is deleted;
+     * for any other this changes nothing and returns false.
      */
     public function undo(): bool
     {
@@ -59,7 +60,7 @@ class Completion extends Model
                 ->orderByDesc('id')
                 ->first();
 
-            if (! $this->is($latest)) {
+            if (! $this->is($latest) || $this->chore->trashed()) {
                 return false;
             }
 

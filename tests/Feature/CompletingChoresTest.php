@@ -105,6 +105,41 @@ class CompletingChoresTest extends TestCase
         $this->assertNull($chore->completions()->sole()->due_on);
     }
 
+    public function test_an_every_day_after_chore_done_a_day_early_is_recorded_and_scored_once_when_tapped_again(): void
+    {
+        $chore = Chore::factory()->after()->create(['every' => 1, 'unit' => 'day', 'points' => 10, 'next_due_on' => '2026-10-08']);
+        $other = Chore::factory()->after()->create(['every' => 1, 'unit' => 'day', 'points' => 5, 'next_due_on' => '2026-10-08']);
+
+        $this->record('chores.complete', $chore, '2026-10-08');
+        // Done on 7 October, so one day later is 8 October again.
+        $this->assertDueOn('2026-10-08', $chore);
+        $this->record('chores.complete', $chore, '2026-10-08');
+        $this->record('chores.complete', $other, '2026-10-08');
+
+        $this->assertSame(1, $chore->completions()->count());
+        $this->assertSame(1, $other->completions()->count());
+        $score = collect($this->get(route('home'))->inertiaProps('users'))->firstWhere('id', $this->user->id);
+        $this->assertSame(10 + 5, $score['today_points']);
+    }
+
+    public function test_an_after_chore_done_early_can_be_done_again_for_the_same_date_on_a_later_day(): void
+    {
+        $chore = Chore::factory()->after()->create(['every' => 1, 'unit' => 'day', 'next_due_on' => '2026-10-08']);
+        $this->record('chores.complete', $chore, '2026-10-08');
+        $this->record('chores.complete', $chore, '2026-10-08');
+
+        $this->travelTo(CarbonImmutable::create(2026, 10, 8, 9, 0, 0, 'Europe/London'));
+        $this->record('chores.complete', $chore, '2026-10-08');
+
+        $this->assertSame(
+            [['2026-10-08', '2026-10-07'], ['2026-10-08', '2026-10-08']],
+            $chore->completions()->orderBy('id')->get()
+                ->map(fn (Completion $completion) => [$completion->due_on->format('Y-m-d'), $completion->completed_at->format('Y-m-d')])
+                ->all(),
+        );
+        $this->assertDueOn('2026-10-09', $chore);
+    }
+
     public function test_an_every_three_days_after_chore_done_late_is_next_due_three_days_from_today(): void
     {
         $chore = Chore::factory()->after()->create(['every' => 3, 'unit' => 'day', 'next_due_on' => '2026-10-05']);
@@ -147,6 +182,18 @@ class CompletingChoresTest extends TestCase
 
         $this->assertModelMissing($completion);
         $this->assertDueOn('2026-10-02', $chore);
+    }
+
+    public function test_after_an_undo_the_chore_can_be_completed_again_for_the_same_date(): void
+    {
+        $chore = Chore::factory()->create(['next_due_on' => '2026-10-07']);
+        $this->record('chores.complete', $chore, '2026-10-07');
+        $this->post(route('completions.undo', $chore->completions()->sole()))->assertRedirect();
+
+        $this->record('chores.complete', $chore, '2026-10-07');
+
+        $this->assertSame('2026-10-07', $chore->completions()->sole()->due_on->format('Y-m-d'));
+        $this->assertDueOn('2026-10-08', $chore);
     }
 
     public function test_undoing_a_finished_one_off_makes_it_unfinished_again(): void
