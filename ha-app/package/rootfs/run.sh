@@ -94,28 +94,9 @@ run_artisan() {
 log "Running database migrations"
 run_artisan migrate --force --no-interaction
 
-# An imported database's open chores can be months old. Sorted dates each
-# chore's next occurrence from the previous one's date, so old chores would
-# come back one day at a time. On import only, move them to today.
-if [ "$IMPORTED" = "yes" ]; then
-    $PHP_BIN -r "
-        \$db = new PDO('sqlite:' . \$argv[1]);
-        try {
-            \$n = \$db->exec(\"UPDATE tasks SET date = date('now') || ' 00:00:00'
-                             WHERE status = 'todo' AND date IS NOT NULL AND date < date('now')\");
-            echo '[sorted] Moved ' . \$n . ' overdue open chores from the imported database to today' . PHP_EOL;
-        } catch (Throwable \$e) {
-            echo '[sorted] Could not re-date imported chores: ' . \$e->getMessage() . PHP_EOL;
-        }
-    " "$DATA_DIR/database.sqlite"
-fi
-
 log "Caching config, routes and views"
 run_artisan optimize:clear --quiet
 run_artisan optimize --quiet
-
-# Make sure every template has its next task (also runs nightly via cron).
-run_artisan tasks:generate --quiet || log "tasks:generate failed (see above)"
 
 [ "$START_SERVICES" = "yes" ] || { log "Setup finished (services not started)"; exit 0; }
 

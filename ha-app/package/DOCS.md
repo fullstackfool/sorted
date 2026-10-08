@@ -8,8 +8,8 @@ Family chores, points and streaks, shown in Home Assistant's sidebar through the
   Both are kept when the app is restarted or updated, and are included in Home
   Assistant backups (the app stops for a few seconds while it's backed up).
 - First start: an empty database is created, unless there's one to import.
-- Nightly: tasks for the next occurrence of each chore are generated at midnight
-  UK time. They're also generated every time the app starts.
+- Nightly: at midnight UK time, open pages are told to reload so the new day's
+  chores show.
 
 ## Importing a database
 
@@ -19,7 +19,7 @@ ending in `_sorted`.
 
 On start, the current database is moved to that folder as `before-import.sqlite`,
 the import is loaded, and your file is renamed `imported.sqlite` so it only loads
-once. Overdue open chores in the imported database are moved to today.
+once. The imported chores keep their dates, and each overdue one shows once.
 
 ## Logs
 

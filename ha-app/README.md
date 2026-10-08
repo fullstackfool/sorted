@@ -34,10 +34,9 @@ ha-app/
   contains a database. See [Importing data](#importing-data).
 - On first start with nothing to import, an empty database is created.
 - Every start: load any import, write `.env`, run migrations, cache
-  config/routes/views, generate any missing pending tasks, then start cron, PHP-FPM
-  and nginx.
-- Cron runs `php artisan schedule:run` every minute; `tasks:generate` fires at
-  midnight UK time (the app's timezone is Europe/London).
+  config/routes/views, then start cron, PHP-FPM and nginx.
+- Cron runs `php artisan schedule:run` every minute; at midnight UK time (the app's
+  timezone is Europe/London) it tells open pages to reload so the new day shows.
 - Logs (start-up, nginx errors, PHP and Laravel errors) go to the app's Log tab.
 
 ## Releasing
@@ -86,12 +85,6 @@ from the project folder.
    it `import.sqlite`.
 3. Restart Sorted. The log shows "Importing import.sqlite". The previous database is
    kept in the same folder as `before-import.sqlite`, and the file you copied is
-   renamed `imported.sqlite` so it only loads once. Overdue open chores in the
-   imported database are moved to today.
+   renamed `imported.sqlite` so it only loads once. The imported chores keep their
+   dates, and each overdue one shows once.
 4. Stop the Samba share app.
-
-## Known quirks (in Sorted itself, not the packaging)
-
-- A chore's next occurrence is dated from the previous one's date, not from when it
-  was completed. If a daily chore is left for several days, completing it brings
-  back the next missed day rather than today.

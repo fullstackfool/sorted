@@ -61,14 +61,6 @@ class User extends Authenticatable
         ];
     }
 
-    /**
-     * Templates assigned to this user
-     */
-    public function templates()
-    {
-        return $this->belongsToMany(Template::class);
-    }
-
     public function chores(): BelongsToMany
     {
         return $this->belongsToMany(Chore::class);
