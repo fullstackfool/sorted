@@ -6,7 +6,7 @@
             <!-- Task Info -->
             <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-3 mb-2">
-                    <Link :href="route('templates.show', task.id)"
+                    <Link :href="route('chores.show', task.id)"
                           class="text-lg font-semibold hover:text-blue-400 transition cursor-pointer"
                           @click.stop>
                         {{ task.title }}

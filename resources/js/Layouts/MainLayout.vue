@@ -22,10 +22,10 @@
                     </svg>
                     Today
                 </Link>
-                <Link :href="route('templates.index')"
+                <Link :href="route('chores.index')"
                       :class="[
                           'flex items-center gap-2 px-3 py-2 text-sm transition border-b-2',
-                          isActive('/templates')
+                          isActive('/chores')
                               ? 'text-white font-bold border-white'
                               : 'text-gray-400 font-medium border-transparent hover:text-white'
                       ]">
@@ -33,7 +33,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                     </svg>
-                    Templates
+                    Chores
                 </Link>
                 <Link :href="route('users.index')"
                       :class="[

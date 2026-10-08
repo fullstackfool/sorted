@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ChoreController;
 use App\Http\Controllers\CompletionController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\TaskController;
@@ -16,6 +17,9 @@ Route::resource('templates', TemplateController::class)->except(['edit']);
 Route::post('/tasks/{task}/complete', [TaskController::class, 'complete'])->name('tasks.complete');
 Route::post('/tasks/{task}/skip', [TaskController::class, 'skip'])->name('tasks.skip');
 Route::post('/tasks/{task}/reset', [TaskController::class, 'reset'])->name('tasks.reset');
+
+// Chore pages (the list, each chore's page and deleting)
+Route::resource('chores', ChoreController::class)->only(['index', 'show', 'destroy']);
 
 // Chore action routes (for completing/skipping chores and undoing their latest completion)
 Route::post('/chores/{chore}/complete', [CompletionController::class, 'complete'])->name('chores.complete');
