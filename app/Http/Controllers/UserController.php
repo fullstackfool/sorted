@@ -2,123 +2,42 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Task;
+use App\Models\Completion;
 use App\Models\User;
+use App\Support\Scoreboard;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class UserController extends Controller
 {
-    /**
-     * Get users with their stats for the scoreboard
-     */
-    private function getUsersWithStats()
-    {
-        return User::all(['id', 'name', 'avatar_style', 'avatar_seed'])->map(function ($user) {
-            // Get weekly points (current week starting from Sunday)
-            $weekStart = now()->startOfWeek(0); // 0 = Sunday
-            $weekEnd   = now()->endOfWeek(6);   // 6 = Saturday
-
-            $weeklyPoints = Task::where('tasks.user_id', $user->id)
-                ->where('tasks.status', 'done')
-                ->whereBetween('tasks.completed_at', [$weekStart, $weekEnd])
-                ->join('templates', 'tasks.template_id', '=', 'templates.id')
-                ->sum('templates.points');
-
-            // Get today's points
-            $todayPoints = Task::where('tasks.user_id', $user->id)
-                ->where('tasks.status', 'done')
-                ->whereDate('tasks.completed_at', today())
-                ->join('templates', 'tasks.template_id', '=', 'templates.id')
-                ->sum('templates.points');
-
-            // Calculate current streak
-            $streak = $this->calculateStreak($user->id);
-
-            return [
-                'id'             => $user->id,
-                'name'           => $user->name,
-                'avatar_url'     => $user->avatar_url,
-                'weekly_points'  => $weeklyPoints,
-                'today_points'   => $todayPoints,
-                'current_streak' => $streak,
-            ];
-        });
-    }
-
-    /**
-     * Calculate the current streak for a user
-     */
-    private function calculateStreak($userId)
-    {
-        $streak      = 0;
-        $currentDate = now()->startOfDay();
-
-        // Go backwards from today to find consecutive days with completed tasks
-        while (true) {
-            $hasCompletedTask = Task::where('user_id', $userId)
-                ->where('status', 'done')
-                ->whereDate('completed_at', $currentDate)
-                ->exists();
-
-            if (!$hasCompletedTask) {
-                // If today has no completed tasks yet and streak is 0, check yesterday
-                if ($streak === 0 && $currentDate->isToday()) {
-                    $currentDate->subDay();
-                    continue;
-                }
-                break;
-            }
-
-            $streak++;
-            $currentDate->subDay();
-        }
-
-        return $streak;
-    }
-
     public function index()
     {
-        $users = User::withCount('templates')
+        $users = User::query()
+            ->withCount(['chores', 'completions as done_count' => fn ($query) => $query->where('status', Completion::DONE)])
+            ->withSum('completions', 'points')
             ->get()
             ->map(function ($user) {
-                // Calculate completions from tasks
-                $completionsCount = Task::where('user_id', $user->id)
-                    ->where('status', 'done')
-                    ->count();
-
-                // Calculate total points from tasks
-                $totalPoints = Task::where('tasks.user_id', $user->id)
-                    ->where('tasks.status', 'done')
-                    ->join('templates', 'tasks.template_id', '=', 'templates.id')
-                    ->sum('templates.points');
-
                 return [
                     'id'              => $user->id,
                     'name'            => $user->name,
                     'email'           => $user->email,
                     'avatar_url'      => $user->avatar_url,
-                    'tasks_assigned'  => $user->templates_count,
-                    'tasks_completed' => $completionsCount,
-                    'total_points'    => $totalPoints,
+                    'tasks_assigned'  => $user->chores_count,
+                    'tasks_completed' => $user->done_count,
+                    'total_points'    => (int) $user->completions_sum_points,
                 ];
             });
 
-        // Get users with stats for scoreboard
-        $usersWithStats = $this->getUsersWithStats();
-
         return Inertia::render('Users/Index', [
-            'users'       => $usersWithStats,
+            'users'       => Scoreboard::forEveryone(),
             'userDetails' => $users,
         ]);
     }
 
     public function create()
     {
-        $users = $this->getUsersWithStats();
-
         return Inertia::render('Users/Create', [
-            'users' => $users,
+            'users' => Scoreboard::forEveryone(),
         ]);
     }
 
@@ -137,43 +56,38 @@ class UserController extends Controller
 
     public function show(User $user)
     {
-        $user->load(['templates.labels']);
-
-        // Get task instances for this user
-        $tasks = Task::where('user_id', $user->id)
-            ->with('template')
-            ->get();
-
-        $completionsCount = $tasks->where('status', 'done')->count();
+        $user->load(['chores.labels']);
 
         $stats = [
-            'tasks_assigned'  => $user->templates()->count(),
-            'tasks_completed' => $completionsCount,
-            'total_points'    => $tasks->where('status', 'done')->sum(function ($task) {
-                return $task->template->points ?? 0;
-            }),
+            'tasks_assigned'  => $user->chores->count(),
+            'tasks_completed' => $user->completions()->where('status', Completion::DONE)->count(),
+            'total_points'    => (int) $user->completions()->sum('points'),
         ];
 
-        // Load recent completions
-        $user->completions = $tasks->sortByDesc('completed_at')->take(10);
-
-        // Get users with stats for scoreboard
-        $users = $this->getUsersWithStats();
+        $recentCompletions = $user->completions()
+            ->with('chore:id,title')
+            ->latest('completed_at')
+            ->latest('id')
+            ->take(10)
+            ->get()
+            ->map(fn (Completion $completion) => [
+                ...$completion->only(['id', 'status', 'points', 'completed_at']),
+                'chore' => $completion->chore->only(['id', 'title']),
+            ]);
 
         return Inertia::render('Users/Show', [
-            'user'  => $user,
-            'stats' => $stats,
-            'users' => $users,
+            'user'              => $user,
+            'stats'             => $stats,
+            'recentCompletions' => $recentCompletions,
+            'users'             => Scoreboard::forEveryone(),
         ]);
     }
 
     public function edit(User $user)
     {
-        $users = $this->getUsersWithStats();
-
         return Inertia::render('Users/Edit', [
             'user'  => $user,
-            'users' => $users,
+            'users' => Scoreboard::forEveryone(),
         ]);
     }
 
@@ -192,7 +106,6 @@ class UserController extends Controller
 
     public function destroy(User $user)
     {
-        $user->templates()->detach();
         $user->delete();
 
         return redirect()->route('users.index')->with('success', 'User deleted.');

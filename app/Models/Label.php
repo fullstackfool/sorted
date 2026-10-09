@@ -12,8 +12,8 @@ class Label extends Model
         'color',
     ];
 
-    public function tasks(): BelongsToMany
+    public function chores(): BelongsToMany
     {
-        return $this->belongsToMany(Template::class);
+        return $this->belongsToMany(Chore::class);
     }
 }
